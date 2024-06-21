@@ -1,4 +1,4 @@
-import { TonClient, WalletContractV4 } from "@ton/ton";
+import { TonClient, WalletContractV4, toNano } from "@ton/ton";
 import { mnemonicToWalletKey, mnemonicNew } from "@ton/crypto";
 
 import {
@@ -9,13 +9,20 @@ import {
 	Cell,
 	contractAddress,
 	beginCell,
+	Builder,
+	Slice,
 } from "@ton/core";
+
+function sleep(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 require("dotenv").config();
 
 // address link: https://tonviewer.com/EQBjZf-UZaz6YQTkHJ3EBxJpgh6GROxoecRm3vVNcncwHNy9
+// testnet https://testnet.tonscan.org/address/EQCDcTg5lRpYA79ZblrWnKJMhZB0WCvw6XGN9Qtn7dq1CRGa
 const counterAddress = Address.parse(
-	"EQBjZf-UZaz6YQTkHJ3EBxJpgh6GROxoecRm3vVNcncwHNy9"
+	"EQCDcTg5lRpYA79ZblrWnKJMhZB0WCvw6XGN9Qtn7dq1CRGa"
 );
 
 // create ton client
@@ -23,6 +30,19 @@ const client = new TonClient({
 	endpoint: process.env.TON_CENTER_ENDPOINT!,
 	apiKey: process.env.TON_CENTER_API_KEY,
 });
+
+export type Add = {
+	$$type: "Add";
+	amount: bigint;
+};
+
+export function storeAdd(src: Add) {
+	return (builder: Builder) => {
+		let b_0 = builder;
+		b_0.storeUint(2278832834, 32);
+		b_0.storeUint(src.amount, 32);
+	};
+}
 
 class Counter implements Contract {
 	static createForDeploy(code: Cell, initialCounterValue: number): Counter {
@@ -37,22 +57,29 @@ class Counter implements Contract {
 		readonly init?: { code: Cell; data: Cell }
 	) {}
 
-	async sendDeploy(provider: ContractProvider, via: Sender) {
-		await provider.internal(via, {
-			value: "0.01", // send 0.01 TON to contract for rent
-			bounce: false,
-		});
-	}
+	async send(
+		provider: ContractProvider,
+		via: Sender,
+		args: { value: bigint; bounce?: boolean | null | undefined },
+		message: Add | "increment"
+	) {
+		let body: Cell | null = null;
+		if (
+			message &&
+			typeof message === "object" &&
+			!(message instanceof Slice) &&
+			message.$$type === "Add"
+		) {
+			body = beginCell().store(storeAdd(message)).endCell();
+		}
+		if (message === "increment") {
+			body = beginCell().storeUint(0, 32).storeStringTail(message).endCell();
+		}
+		if (body === null) {
+			throw new Error("Invalid message type");
+		}
 
-	async sendIncrement(provider: ContractProvider, via: Sender) {
-		const messageBody = beginCell()
-			.storeUint(1, 32) // op (op #1 = increment)
-			.storeUint(0, 64) // query id
-			.endCell();
-		await provider.internal(via, {
-			value: "0.002", // send 0.002 TON for gas
-			body: messageBody,
-		});
+		await provider.internal(via, { ...args, body: body });
 	}
 
 	async getCounter(provider: ContractProvider) {
@@ -63,23 +90,20 @@ class Counter implements Contract {
 
 // Needs rpc endpoint
 async function callCounter() {
-	try {
-		/* 
+	/* 
     Add ton client code to call counter. It should return 1
 
     console.log to print the result
 
     */
 
-		const counter = new Counter(counterAddress);
-		const counterContract = client.open(counter);
+	const counter = new Counter(counterAddress);
+	const counterContract = client.open(counter);
 
-		// call the getter on chain
-		const counterValue = await counterContract.getCounter();
-		console.log("Counter: ", counterValue);
-	} catch (error) {
-		console.error(error);
-	}
+	// call the getter on chain
+	const counterValue = await counterContract.getCounter();
+	console.log("Counter: ", counterValue);
+	return counterValue;
 }
 
 async function incrementCounter() {
@@ -107,11 +131,32 @@ async function incrementCounter() {
 		// const counter = await client.(counterAddress, "counter");
 		// console.log("Counter: ", counter.stack.readBigNumber());
 
+		console.log("Set counter");
 		const counter = new Counter(counterAddress);
 		const counterContract = client.open(counter);
 
+		let counterBefore = await callCounter();
+
 		// send the increment transaction
-		await counterContract.sendIncrement(walletSender);
+		await counterContract.send(
+			walletSender,
+			{
+				value: toNano("0.05"),
+			},
+			{
+				$$type: "Add",
+				amount: 10n, // Change any number
+			}
+		);
+
+		let counterAfter = await callCounter();
+		let attempt = 1;
+		while (counterAfter === counterBefore) {
+			console.log(`Attempt ${attempt}`);
+			await sleep(2000);
+			counterAfter = await callCounter();
+			attempt++;
+		}
 	} catch (error) {
 		console.error(error);
 	}
