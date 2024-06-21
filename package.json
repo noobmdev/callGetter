@@ -1,12 +1,19 @@
 {
-  "name": "callgetter",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+	"name": "callgetter",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"dependencies": {
+		"@ton/ton": "^13.11.2"
+	},
+	"devDependencies": {
+		"dotenv": "^16.4.5",
+		"ts-node": "^10.9.2"
+	}
 }
